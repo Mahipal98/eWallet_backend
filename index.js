@@ -2,6 +2,7 @@ const { Client } = require("pg");
 const express = require("express");
 const bodyParser = require("body-parser"); // Add body-parser for handling POST request bodies
 
+<<<<<<< HEAD
 const app = express();
 const port = 3000;
 
@@ -258,6 +259,11 @@ app.post("/wallets", (req, res) => {
       res.status(500).send("Internal Server Error");
     });
 });
+=======
+app.get('/', (req, res) => {
+  res.status(200).send('Hello World! Thanks for this')
+})
+>>>>>>> 4fc13b6688c78ce13e0e6c6e15f4a2b05d8382cb
 
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
