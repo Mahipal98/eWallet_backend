@@ -45,7 +45,7 @@ jobs:
 
       - name: Download task definition
         env:
-          TASK_DEF: 'arn:aws:ecs:us-east-2:590759815902:task-definition/ewalletapiFargateTaskDef89E8ABAA:2'
+          TASK_DEF: 'arn:aws:ecs:us-east-2:590759815902:task-definition/ewalletapiFargateTaskDef89E8ABAA'
         run: |
           aws ecs describe-task-definition --task-definition $TASK_DEF \
           --query taskDefinition > task-definition.json
