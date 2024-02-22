@@ -1,9 +1,27 @@
 const { Client } = require("pg");
 const express = require("express");
 const bodyParser = require("body-parser"); // Add body-parser for handling POST request bodies
+const cors = require("cors");
 
 const app = express();
 const port = 3000;
+
+const allowedOrigins = ["http://localhost:4200", "https://d34tm79nlljwo9.cloudfront.net"];
+
+// Configure CORS options
+var corsOptions = {
+  origin: function (origin, callback) {
+    // Check if the origin is in the list of allowed origins or if it's undefined (e.g., from a direct HTTP request)
+    if (allowedOrigins.includes(origin) || !origin) {
+      callback(null, true); // Allow the request
+    } else {
+      callback(new Error("Not allowed by CORS")); // Deny the request
+    }
+  }
+};
+
+// Apply CORS middleware with custom options
+app.use(cors(corsOptions));
 
 // Database connection configuration
 const dbConfig = {
