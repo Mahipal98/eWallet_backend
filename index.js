@@ -280,3 +280,7 @@ app.post("/wallets", (req, res) => {
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
 });
+
+app.get('/', (req, res) => {
+  res.status(200).send('Hello World!')
+})
