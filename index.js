@@ -70,67 +70,8 @@ app.get("/users", (req, res) => {
     });
 });
 
-// // POST endpoint to create a new user
-// app.post("/users", (req, res) => {
-//   const {
-//     first_name,
-//     last_name,
-//     email,
-//     wallet_id,
-//     password,
-//     role,
-//     account_status,
-//   } = req.body;
-//   const client = new Client(dbConfig);
-
-//   console.log(req.body);
-
-//   client
-//     .connect()
-//     .then(() => {
-//       console.log("Connected to PostgreSQL database");
-
-//       // Executing INSERT query
-//       const query = `
-//         INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-//         VALUES ($1, $2, $3, $4, $5, $6, $7)
-//         RETURNING *`;
-//       const values = [
-//         first_name,
-//         last_name,
-//         email,
-//         wallet_id,
-//         password,
-//         role,
-//         account_status,
-//       ];
-
-//       client.query(query, values, (err, result) => {
-//         if (err) {
-//           console.error("Error executing query", err);
-//           res.status(500).send("Internal Server Error in client.query");
-//         } else {
-//           res.status(201).json(result.rows[0]);
-//         }
-//         client
-//           .end()
-//           .then(() => {
-//             console.log("Connection to PostgreSQL closed");
-//           })
-//           .catch((err) => {
-//             console.error("Error closing connection", err);
-//           });
-//       });
-//     })
-//     .catch((err) => {
-//       console.error("Error connecting to PostgreSQL database", err);
-//       res.status(500).send("Internal Server Error");
-//     });
-// });
-
 // POST endpoint to create a new user
 app.post("/users", (req, res) => {
-  console
   const {
     first_name,
     last_name,
@@ -144,49 +85,67 @@ app.post("/users", (req, res) => {
 
   console.log(req.body);
 
+// Checking is user exists
   client
     .connect()
     .then(() => {
-      console.log("Connected to PostgreSQL database");
-
-      // Executing INSERT query
-      // const query = `
-      //   INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-      //   VALUES ($1, $2, $3, $4, $5, $6, $7)
-      //   RETURNING *`;
-      // const values = [
-      //   first_name,
-      //   last_name,
-      //   email,
-      //   wallet_id,
-      //   password,
-      //   role,
-      //   account_status,
-      // ];
-
-      const query = `
-      WITH new_user AS (
-        INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-      ),
-      new_wallet AS (
-        INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
-      )
-      UPDATE users
-      SET wallet_id = (SELECT id FROM new_wallet)
-      WHERE id = (SELECT id FROM new_user);
-    `;
-    
-    const values = [first_name, last_name, email, null, password, role, account_status];
-    
-
+      // const query = `SELECT email FROM users WHERE email=email`;
+      const query = 'SELECT COUNT(email) FROM users WHERE email = $1';
+      const values = [email];
       client.query(query, values, (err, result) => {
-        if (err) {
-          console.error("Error executing query", err);
-          res.status(500).send("Internal Server Error in client.query");
+        if (err)  {
+          console.error("Error executing query ="+ query +"\nError is:\n", err);
+          res.status(500).send("Internal Server Error in client.query for checking user data");
         } else {
-          res.status(201).json(result.rows[0]);
+          const count = result.rows[0].count;
+          if(count==1){
+            res.status(201).send("User Already exists");
+          }
+          else{
+            const newclient = new Client(dbConfig);
+            // No user exists, Creating new user 
+            newclient
+            .connect()
+            .then(() => {
+              console.log("Connected to PostgreSQL database");
+              const query = `
+              WITH new_user AS (
+                INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id
+              ),
+              new_wallet AS (
+                INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
+              )
+              UPDATE users
+              SET wallet_id = (SELECT id FROM new_wallet)
+              WHERE id = (SELECT id FROM new_user);
+            `;
+            
+            const values = [first_name, last_name, email, null, password, role, account_status];
+            
+            newclient.query(query, values, (err, result) => {
+                if (err) {
+                  console.error("Error executing query", err);
+                  res.status(500).send("Internal Server Error in new client.query");
+                } else {
+                  res.status(201).json(result);
+                }
+                newclient
+                  .end()
+                  .then(() => {
+                    console.log("Connection to PostgreSQL closed");
+                  })
+                  .catch((err) => {
+                    console.error("Error closing connection", err);
+                  });
+              });
+            })
+            .catch((err) => {
+              console.error("Error connecting to PostgreSQL database", err);
+              res.status(500).send("Internal Server Error");
+            });
+          }
         }
         client
           .end()
@@ -197,11 +156,49 @@ app.post("/users", (req, res) => {
             console.error("Error closing connection", err);
           });
       });
-    })
-    .catch((err) => {
-      console.error("Error connecting to PostgreSQL database", err);
-      res.status(500).send("Internal Server Error");
-    });
+  })
+
+  // client
+  //   .connect()
+  //   .then(() => {
+  //     console.log("Connected to PostgreSQL database");
+  //     const query = `
+  //     WITH new_user AS (
+  //       INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
+  //       VALUES ($1, $2, $3, $4, $5, $6, $7)
+  //       RETURNING id
+  //     ),
+  //     new_wallet AS (
+  //       INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
+  //     )
+  //     UPDATE users
+  //     SET wallet_id = (SELECT id FROM new_wallet)
+  //     WHERE id = (SELECT id FROM new_user);
+  //   `;
+    
+  //   const values = [first_name, last_name, email, null, password, role, account_status];
+    
+  //     client.query(query, values, (err, result) => {
+  //       if (err) {
+  //         console.error("Error executing query", err);
+  //         res.status(500).send("Internal Server Error in client.query");
+  //       } else {
+  //         res.status(201).json(result.rows[0]);
+  //       }
+  //       client
+  //         .end()
+  //         .then(() => {
+  //           console.log("Connection to PostgreSQL closed");
+  //         })
+  //         .catch((err) => {
+  //           console.error("Error closing connection", err);
+  //         });
+  //     });
+  //   })
+  //   .catch((err) => {
+  //     console.error("Error connecting to PostgreSQL database", err);
+  //     res.status(500).send("Internal Server Error");
+  //   });
 });
 
 // GET endpoint to fetch all wallets
