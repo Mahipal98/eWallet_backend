@@ -35,43 +35,42 @@ const dbConfig = {
 // Middleware to parse JSON in the request body
 app.use(bodyParser.json());
 
-// GET endpoint to fetch all users
-app.get("/users", (req, res) => {
-  // Create a new PostgreSQL client
+// Function to connect to the PostgreSQL database
+async function connectToDatabase() {
   const client = new Client(dbConfig);
+  await client.connect();
+  console.log("Connected to PostgreSQL database");
+  return client;
+}
 
-  client
-    .connect()
-    .then(() => {
-      console.log("Connected to PostgreSQL database");
+// Function to execute a query and close the connection
+async function executeQuery(client, query, values) {
+  try {
+    const result = await client.query(query, values);
+    return result;
+  } catch (err) {
+    console.error("Error executing query:", err);
+    throw err; // Re-throw the error to be handled by the route handler
+  } finally {
+    await client.end();
+    console.log("Connection to PostgreSQL closed");
+  }
+}
 
-      // Executing SELECT query
-      client.query("SELECT * FROM users", (err, result) => {
-        if (err) {
-          console.error("Error executing query", err);
-          res.status(500).send("Internal Server Error");
-        } else {
-          res.status(200).json(result.rows);
-          console.log("The result is: " + result);
-        }
-        client
-          .end()
-          .then(() => {
-            console.log("Connection to PostgreSQL closed");
-          })
-          .catch((err) => {
-            console.error("Error closing connection", err);
-          });
-      });
-    })
-    .catch((err) => {
-      console.error("Error connecting to PostgreSQL database", err);
-      res.status(500).send("Internal Server Error");
-    });
+// GET endpoint to fetch all users
+app.get("/users", async (req, res) => {
+  try {
+    const client = await connectToDatabase();
+    const result = await executeQuery(client, "SELECT * FROM users");
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
 });
 
 // POST endpoint to create a new user
-app.post("/users", (req, res) => {
+app.post("/users", async (req, res) => {
   const {
     first_name,
     last_name,
@@ -81,124 +80,42 @@ app.post("/users", (req, res) => {
     role,
     account_status,
   } = req.body;
-  const client = new Client(dbConfig);
 
-  console.log(req.body);
+  try {
+    const client = await connectToDatabase();
 
-// Checking is user exists
-  client
-    .connect()
-    .then(() => {
-      // const query = `SELECT email FROM users WHERE email=email`;
-      const query = 'SELECT COUNT(email) FROM users WHERE email = $1';
-      const values = [email];
-      client.query(query, values, (err, result) => {
-        if (err)  {
-          console.error("Error executing query ="+ query +"\nError is:\n", err);
-          res.status(500).send("Internal Server Error in client.query for checking user data");
-        } else {
-          const count = result.rows[0].count;
-          if(count==1){
-            res.status(201).send("User Already exists");
-          }
-          else{
-            const newclient = new Client(dbConfig);
-            // No user exists, Creating new user 
-            newclient
-            .connect()
-            .then(() => {
-              console.log("Connected to PostgreSQL database");
-              const query = `
-              WITH new_user AS (
-                INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                RETURNING id
-              ),
-              new_wallet AS (
-                INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
-              )
-              UPDATE users
-              SET wallet_id = (SELECT id FROM new_wallet)
-              WHERE id = (SELECT id FROM new_user);
-            `;
-            
-            const values = [first_name, last_name, email, null, password, role, account_status];
-            
-            newclient.query(query, values, (err, result) => {
-                if (err) {
-                  console.error("Error executing query", err);
-                  res.status(500).send("Internal Server Error in new client.query");
-                } else {
-                  res.status(201).json(result);
-                }
-                newclient
-                  .end()
-                  .then(() => {
-                    console.log("Connection to PostgreSQL closed");
-                  })
-                  .catch((err) => {
-                    console.error("Error closing connection", err);
-                  });
-              });
-            })
-            .catch((err) => {
-              console.error("Error connecting to PostgreSQL database", err);
-              res.status(500).send("Internal Server Error");
-            });
-          }
-        }
-        client
-          .end()
-          .then(() => {
-            console.log("Connection to PostgreSQL closed");
-          })
-          .catch((err) => {
-            console.error("Error closing connection", err);
-          });
-      });
-  })
+    // Check if user exists
+    const query = 'SELECT COUNT(email) FROM users WHERE email = $1';
+    const values = [email];
+    const result = await executeQuery(client, query, values);
 
-  // client
-  //   .connect()
-  //   .then(() => {
-  //     console.log("Connected to PostgreSQL database");
-  //     const query = `
-  //     WITH new_user AS (
-  //       INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-  //       VALUES ($1, $2, $3, $4, $5, $6, $7)
-  //       RETURNING id
-  //     ),
-  //     new_wallet AS (
-  //       INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
-  //     )
-  //     UPDATE users
-  //     SET wallet_id = (SELECT id FROM new_wallet)
-  //     WHERE id = (SELECT id FROM new_user);
-  //   `;
-    
-  //   const values = [first_name, last_name, email, null, password, role, account_status];
-    
-  //     client.query(query, values, (err, result) => {
-  //       if (err) {
-  //         console.error("Error executing query", err);
-  //         res.status(500).send("Internal Server Error in client.query");
-  //       } else {
-  //         res.status(201).json(result.rows[0]);
-  //       }
-  //       client
-  //         .end()
-  //         .then(() => {
-  //           console.log("Connection to PostgreSQL closed");
-  //         })
-  //         .catch((err) => {
-  //           console.error("Error closing connection", err);
-  //         });
-  //     });
-  //   })
-  //   .catch((err) => {
-  //     console.error("Error connecting to PostgreSQL database", err);
-  //     res.status(500).send("Internal Server Error");
-  //   });
+    if (result.rows[0].count === 1) {
+      res.status(201).send("User Already exists");
+      return;
+    }
+    const newclient = await connectToDatabase();
+    // Create new user and wallet
+    const newuserQuery = `
+      WITH new_user AS (
+        INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+      ),
+      new_wallet AS (
+        INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
+      )
+      UPDATE users
+      SET wallet_id = (SELECT id FROM new_wallet)
+      WHERE id = (SELECT id FROM new_user);
+    `;
+    const newuserValues = [first_name, last_name, email, null, password, role, account_status];
+    const newuserResult = await executeQuery(newclient, newuserQuery, newuserValues);
+
+    res.status(201).json(newuserResult.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
 });
 
 // GET endpoint to fetch all wallets
@@ -274,10 +191,33 @@ app.post("/wallets", (req, res) => {
     });
 });
 
+// Login endpoint
+app.get('/checkuser', async (req, res) => {
+  const {
+    email,
+    password,
+  } = req.body;
+
+  try {
+    const client = await connectToDatabase();
+    const query = "SELECT email, password FROM users WHERE email = $1";
+    const values = [email];
+    const result = await executeQuery(client, query, values);
+
+    if (result.rows.length > 0) {
+      res.status(200).json(result.rows[0]);
+      console.log("The result is: " + result.rows[0]);
+    } else {
+      res.status(404).send("User not found"); // Use a more appropriate status code for a missing user
+      console.log("No matching rows found");
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
 });
-
-app.get('/', (req, res) => {
-  res.status(200).send('Hello World!')
-})
