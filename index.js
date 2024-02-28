@@ -223,16 +223,17 @@ app.post("/checkuser", async (req, res) => {
     const values = [email];
     const result = await executeQuery(client, query, values);
 
-    console.log(result);
-
+    // Check if user exists, if not, terminate process and return 404
     if (result.rows.length <= 0) {
       res.status(404).send("User not found"); // Use a more appropriate status code for a missing user
       console.log("No matching rows found");
     } else {
+      
+      // Get user and verify hashed password
       let user = result.rows[0];
-
       var passwordIsValid = bcrypt.compareSync(password, user.password);
 
+      // If password isn't valid, terminate before proceeding
       if (!passwordIsValid) {
         return res.status(401).send({
           accessToken: null,
