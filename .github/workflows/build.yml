@@ -57,3 +57,4 @@ jobs:
           service: 'api'
           cluster: 'ewallet-api'
           wait-for-service-stability: true
+          wait-for-minutes: 15
