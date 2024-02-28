@@ -3,10 +3,18 @@ const express = require("express");
 const bodyParser = require("body-parser"); // Add body-parser for handling POST request bodies
 const cors = require("cors");
 
+var jwt = require("jsonwebtoken");
+var bcrypt = require("bcryptjs");
+
 const app = express();
 const port = 3000;
 
-const allowedOrigins = ["http://localhost:4200", "https://d34tm79nlljwo9.cloudfront.net"];
+const allowedOrigins = [
+  "http://localhost:4200",
+  "https://d34tm79nlljwo9.cloudfront.net",
+];
+
+const secret = "ewallet-sdlc-operxxx5002";
 
 // Configure CORS options
 var corsOptions = {
@@ -17,7 +25,7 @@ var corsOptions = {
     } else {
       callback(new Error("Not allowed by CORS")); // Deny the request
     }
-  }
+  },
 };
 
 // Apply CORS middleware with custom options
@@ -71,7 +79,7 @@ app.get("/users", async (req, res) => {
 
 // POST endpoint to create a new user
 app.post("/users", async (req, res) => {
-  const {
+  let {
     first_name,
     last_name,
     email,
@@ -81,11 +89,13 @@ app.post("/users", async (req, res) => {
     account_status,
   } = req.body;
 
+  password = bcrypt.hashSync(password, 8);
+
   try {
     const client = await connectToDatabase();
 
     // Check if user exists
-    const query = 'SELECT COUNT(email) FROM users WHERE email = $1';
+    const query = "SELECT COUNT(email) FROM users WHERE email = $1";
     const values = [email];
     const result = await executeQuery(client, query, values);
 
@@ -108,8 +118,20 @@ app.post("/users", async (req, res) => {
       SET wallet_id = (SELECT id FROM new_wallet)
       WHERE id = (SELECT id FROM new_user);
     `;
-    const newuserValues = [first_name, last_name, email, null, password, role, account_status];
-    const newuserResult = await executeQuery(newclient, newuserQuery, newuserValues);
+    const newuserValues = [
+      first_name,
+      last_name,
+      email,
+      null,
+      password,
+      role,
+      account_status,
+    ];
+    const newuserResult = await executeQuery(
+      newclient,
+      newuserQuery,
+      newuserValues
+    );
 
     res.status(201).json(newuserResult.rows[0]);
   } catch (err) {
@@ -192,31 +214,51 @@ app.post("/wallets", (req, res) => {
 });
 
 // Login endpoint
-app.get('/checkuser', async (req, res) => {
-  const {
-    email,
-    password,
-  } = req.body;
+app.post("/checkuser", async (req, res) => {
+  const { email, password } = req.body;
 
   try {
     const client = await connectToDatabase();
-    const query = "SELECT email, password FROM users WHERE email = $1";
+    const query = "SELECT id, email, password FROM users WHERE email = $1";
     const values = [email];
     const result = await executeQuery(client, query, values);
 
-    if (result.rows.length > 0) {
-      res.status(200).json(result.rows[0]);
-      console.log("The result is: " + result.rows[0]);
-    } else {
+    console.log(result);
+
+    if (result.rows.length <= 0) {
       res.status(404).send("User not found"); // Use a more appropriate status code for a missing user
       console.log("No matching rows found");
+    } else {
+      let user = result.rows[0];
+
+      var passwordIsValid = bcrypt.compareSync(password, user.password);
+
+      if (!passwordIsValid) {
+        return res.status(401).send({
+          accessToken: null,
+          message: "Invalid Password!",
+        });
+      } else {
+        const token = jwt.sign({ id: user.id, email: user.email }, secret, {
+          algorithm: "HS256",
+          allowInsecureKeySizes: true,
+          expiresIn: 86400, // 24 hours
+        });
+
+        res.status(200).json({
+          id: user.id,
+          email: user.email,
+          accessToken: token,
+          message: "Login Successful",
+        });
+        console.log("The result is: " + result.rows[0]);
+      }
     }
   } catch (err) {
     console.error(err);
     res.status(500).send("Internal Server Error");
   }
 });
-
 
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
