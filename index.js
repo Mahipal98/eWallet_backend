@@ -35,7 +35,7 @@ app.use(cors(corsOptions));
 const dbConfig = {
   user: "ewalletuser",
   password: "HealthWwPgwW615!",
-  host: "ewallet-api-rdsinstance9f6b765a-dgkmyzjb9p2k.cd8m6wu8guse.us-east-2.rds.amazonaws.com",
+  host: "ewallet-db.cd8m6wu8guse.us-east-2.rds.amazonaws.com",
   port: 5432,
   database: "ewallet",
 };

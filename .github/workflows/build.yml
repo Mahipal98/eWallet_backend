@@ -43,18 +43,18 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      - name: Download task definition
-        env:
-          TASK_DEF: 'arn:aws:ecs:us-east-2:590759815902:task-definition/ewalletapiFargateTaskDef89E8ABAA'
-        run: |
-          aws ecs describe-task-definition --task-definition $TASK_DEF \
-          --query taskDefinition > task-definition.json
+      # - name: Download task definition
+      #   env:
+      #     TASK_DEF: 'arn:aws:ecs:us-east-2:590759815902:task-definition/ewalletapiFargateTaskDef89E8ABAA'
+      #   run: |
+      #     aws ecs describe-task-definition --task-definition $TASK_DEF \
+      #     --query taskDefinition > task-definition.json
 
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          service: 'api'
-          cluster: 'ewallet-api'
-          wait-for-service-stability: true
-          wait-for-minutes: 15
+      # - name: Deploy Amazon ECS task definition
+      #   uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      #   with:
+      #     task-definition: task-definition.json
+      #     service: 'api'
+      #     cluster: 'ewallet-api'
+      #     wait-for-service-stability: true
+      #     wait-for-minutes: 15
