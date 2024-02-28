@@ -38,6 +38,9 @@ const dbConfig = {
   host: "ewallet-db.cd8m6wu8guse.us-east-2.rds.amazonaws.com",
   port: 5432,
   database: "ewallet",
+  ssl: {
+    rejectUnauthorized: false
+  }
 };
 
 // Middleware to parse JSON in the request body
