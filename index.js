@@ -81,6 +81,69 @@ app.get("/users", async (req, res) => {
 });
 
 // POST endpoint to create a new user
+// app.post("/users", async (req, res) => {
+//   let {
+//     first_name,
+//     last_name,
+//     email,
+//     //wallet_id,
+//     password,
+//     role,
+//     account_status,
+//   } = req.body;
+
+//   password = bcrypt.hashSync(password, 8);
+
+//   try {
+//     const client = await connectToDatabase();
+
+//     // Check if user exists
+//     const query = "SELECT COUNT(email) FROM users WHERE email = $1";
+//     const values = [email];
+//     const result = await executeQuery(client, query, values);
+
+//     if (result.rows[0].count === 1) {
+//       res.status(201).send("User Already exists");
+//       return;
+//     }
+//     const newclient = await connectToDatabase();
+//     // Create new user and wallet
+//     const newuserQuery = `
+//       WITH new_user AS (
+//         INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
+//         VALUES ($1, $2, $3, $4, $5, $6, $7)
+//         RETURNING id
+//       ),
+//       new_wallet AS (
+//         INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
+//       )
+//       UPDATE users
+//       SET wallet_id = (SELECT id FROM new_wallet)
+//       WHERE id = (SELECT id FROM new_user);
+//     `;
+//     const newuserValues = [
+//       first_name,
+//       last_name,
+//       email,
+//       null,
+//       password,
+//       role,
+//       account_status,
+//     ];
+//     const newuserResult = await executeQuery(
+//       newclient,
+//       newuserQuery,
+//       newuserValues
+//     );
+
+//     res.status(201).json(newuserResult.rows[0]);
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).send("Internal Server Error");
+//   }
+// });
+
+// POST endpoint to create a new user
 app.post("/users", async (req, res) => {
   let {
     first_name,
@@ -97,31 +160,25 @@ app.post("/users", async (req, res) => {
   try {
     const client = await connectToDatabase();
 
-    // Check if user exists
-    const query = "SELECT COUNT(email) FROM users WHERE email = $1";
-    const values = [email];
-    const result = await executeQuery(client, query, values);
+    // 1. Check if user exists (already using executeQuery)
+    const userExists = await executeQuery(
+      client,
+      "SELECT COUNT(email) FROM users WHERE email = $1",
+      [email]
+    );
 
-    if (result.rows[0].count === 1) {
+    if (userExists.rows[0].count === 1) {
       res.status(201).send("User Already exists");
       return;
     }
-    const newclient = await connectToDatabase();
-    // Create new user and wallet
-    const newuserQuery = `
-      WITH new_user AS (
-        INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-      ),
-      new_wallet AS (
-        INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
-      )
-      UPDATE users
-      SET wallet_id = (SELECT id FROM new_wallet)
-      WHERE id = (SELECT id FROM new_user);
+
+    // 2. Create new user (separate query)
+    const createUserQuery = `
+      INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id;
     `;
-    const newuserValues = [
+    const createUserValues = [
       first_name,
       last_name,
       email,
@@ -130,18 +187,37 @@ app.post("/users", async (req, res) => {
       role,
       account_status,
     ];
-    const newuserResult = await executeQuery(
-      newclient,
-      newuserQuery,
-      newuserValues
+    const createUserclient = await connectToDatabase();
+    const createUserResult = await executeQuery(createUserclient, createUserQuery, createUserValues);
+    const userId = createUserResult.rows[0].id; // Get the created user ID
+
+    // 3. Create wallet and update user (separate query)
+    const createWalletQuery = `
+      INSERT INTO wallet (user_id, balance) VALUES ($1, 0) RETURNING id;
+    `;
+    const createWalletValues = [userId]; // Use the retrieved userId
+    const createWalletclient = await connectToDatabase();
+    const createWalletResult = await executeQuery(createWalletclient, createWalletQuery, createWalletValues);
+    const walletId = createWalletResult.rows[0].id; // Get the created wallet ID
+
+    const updateUserQuery = await connectToDatabase();
+    // Update user's wallet_id (no separate query needed)
+    await executeQuery(
+      updateUserQuery,
+      `UPDATE users SET wallet_id = $1 WHERE id = $2`,
+      [walletId, userId]
     );
 
-    res.status(201).json(newuserResult.rows[0]);
+    res.status(201).json({
+      id: userId, // Return both user and wallet IDs in the response
+      wallet_id: walletId,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).send("Internal Server Error");
   }
 });
+
 
 // GET endpoint to fetch all wallets
 app.get("/wallets", (req, res) => {
@@ -257,6 +333,28 @@ app.post("/checkuser", async (req, res) => {
         });
         console.log("The result is: " + result.rows[0]);
       }
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+// Getting user Info by email/wallet
+app.get("/getUserInfo", async(req, res) => {
+  const{email, wallet_id} = req.body;
+  try {
+    const client = await connectToDatabase();
+    const query = "SELECT first_name,last_name,email FROM users WHERE email = $1 OR wallet_id = $2";
+    const values = [email, wallet_id];
+    const result = await executeQuery(client, query, values);
+
+    // Check if user exists, if not, terminate process and return 404
+    if (result.rows.length <= 0) {
+      res.status(404).send("User not found"); // Use a more appropriate status code for a missing user
+      console.log("No matching rows found");
+    } else {
+      res.status(200).send(result.rows[0]);
     }
   } catch (err) {
     console.error(err);
