@@ -5,6 +5,8 @@ const cors = require("cors");
 
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcryptjs");
+const authenticateToken = require('./src/helper/authenticator.js');
+const deconstructToken = require('./src/helper/token.js');
 
 const app = express();
 const port = 3000;
@@ -341,20 +343,162 @@ app.post("/checkuser", async (req, res) => {
 });
 
 // Getting user Info by email/wallet
-app.get("/getUserInfo", async(req, res) => {
+app.post("/getUserInfo", async(req, res) => {
   const{email, wallet_id} = req.body;
+
+  const isValidToken = authenticateToken(req, res, secret);
+
+  if (!isValidToken) {
+      // Unauthorized request, handle it accordingly
+      return;
+  }
+
   try {
     const client = await connectToDatabase();
-    const query = "SELECT first_name,last_name,email FROM users WHERE email = $1 OR wallet_id = $2";
-    const values = [email, wallet_id];
-    const result = await executeQuery(client, query, values);
+    const result = await getUserInfo(client, email, wallet_id);
 
     // Check if user exists, if not, terminate process and return 404
-    if (result.rows.length <= 0) {
-      res.status(404).send("User not found"); // Use a more appropriate status code for a missing user
+    if (result === null) {
+      res.status(404).send({message: "User not found"}); // Use a more appropriate status code for a missing user
       console.log("No matching rows found");
     } else {
-      res.status(200).send(result.rows[0]);
+      res.status(200).send(result);
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+// Transfer Funds to Recipient
+app.post("/transferFunds", async(req, res) => {
+  const{ recipient_wallet, amount, narration } = req.body;
+
+  const isValidToken = authenticateToken(req, res, secret);
+  if (!isValidToken) {
+      res.status(401).send({message: "Unauthorized"});
+      return;
+  }
+
+  const token = deconstructToken(req, res, secret);
+  if (!token){
+    res.status(401).send({message: "Unauthorized"});
+    return;
+  }
+
+  const { id } = token;
+
+  console.log("Sender's wallet:", id);
+  console.log("Recipient's wallet:", recipient_wallet);
+
+  if (id == recipient_wallet) {
+    res.status(400).send({message: "You cannot transfer funds to yourself"});
+    return;
+  }
+
+  try {
+    var client = await connectToDatabase();
+    // Fetch balance for sender's wallet
+    const senderBalance = await getBalance(client, id);
+
+    if (senderBalance === null) {
+      res.status(404).send({ message: "Sender wallet not found" });
+      return;
+    }
+
+    if (parseFloat(senderBalance) < parseFloat(amount)) {
+      res.status(400).send({message: "Insufficient Funds"});
+      return;
+    }
+
+    var client = await connectToDatabase();
+    // Fetch balance for recipient's wallet
+    const recipientBalance = await getBalance(client, recipient_wallet);
+
+    if (recipientBalance === null) {
+      res.status(404).send({ message: "Recipient wallet not found" });
+      return;
+    }
+
+    // Deduct amount from sender's wallet
+    const senderClient = await connectToDatabase();
+    const senderQuery = `
+      UPDATE wallet
+      SET balance = balance - $1
+      WHERE user_id = $2
+      RETURNING balance;
+    `;
+    const senderValues = [amount, id];
+    const senderResult = await executeQuery(senderClient, senderQuery, senderValues);
+    const postsenderBalance = senderResult.rows[0].balance;
+
+    // Update receiver's wallet with amount
+    const recipientClient = await connectToDatabase();
+    const recipientQuery = `
+      UPDATE wallet
+      SET balance = balance + $1
+      WHERE user_id = $2
+      RETURNING balance;
+    `;
+    const recipientValues = [amount, recipient_wallet];
+    const recipientResult = await executeQuery(recipientClient, recipientQuery, recipientValues);
+    const postrecipientBalance = recipientResult.rows[0].balance;
+
+    console.log("Sender's balance after deduction:", postsenderBalance);
+    console.log("Recipient's balance after addition:", postrecipientBalance);
+
+    const transactionData = await createTransaction(client, id, recipient_wallet, amount, narration);
+
+    res.status(200).send({message: "Transfer Successful", transactionData: transactionData, senderBalance: postsenderBalance});
+  
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+// Getting user Info by email/wallet
+app.get("/getTransactions", async(req, res) => {
+  const{email, wallet_id} = req.body;
+
+  const isValidToken = authenticateToken(req, res, secret);
+
+  if (!isValidToken) {
+      return;
+  }
+
+  const token = deconstructToken(req, res, secret);
+  if (!token){
+    res.status(401).send({message: "Unauthorized"});
+    return;
+  }
+
+  const { id } = token;
+
+  try {
+    const client = await connectToDatabase();
+    const query = "SELECT * FROM transactions WHERE sender_wallet = $1 OR receiver_wallet = $1 ORDER BY id DESC LIMIT 10";
+    const values = [id];
+    const result = await executeQuery(client, query, values);
+
+    // Check if transactions exist, if not, terminate process and return 404
+    if (result === null) {
+      res.status(404).send({message: "Transaction List Empty"});
+      console.log("No matching rows found");
+    } else {
+
+      result.rows.map((transaction) => {
+        if (transaction.sender_wallet == id) {
+          transaction.transaction_type = "Debit";
+        } else {
+          transaction.transaction_type = "Credit";
+        }
+      })
+
+      res.status(200).send({
+        message: "Transactions Found",
+        transactions: result.rows
+      });
     }
   } catch (err) {
     console.error(err);
@@ -369,3 +513,36 @@ app.listen(port, () => {
 app.get('/', (req, res) => {
   res.status(200).send('Hello World!')
 })
+
+async function getBalance(client, walletId) {
+  const query = "SELECT balance FROM wallet WHERE id = $1";
+  const values = [walletId];
+  const result = await executeQuery(client, query, values);
+  return result.rows.length > 0 ? result.rows[0].balance : null;
+}
+
+async function getUserInfo(client, email, wallet_id) {
+  const query = "SELECT id,first_name,last_name,email FROM users WHERE email = $1 OR wallet_id = $2";
+  const values = [email, wallet_id];
+  const result = await executeQuery(client, query, values);
+  return result.rows.length > 0 ? result.rows[0] : null;
+}
+
+async function createTransaction(client, sender_wallet, receiver_wallet, amount, narration) {
+
+  var client = await connectToDatabase();
+  const recipientInfo = await getUserInfo(client, '', receiver_wallet);
+
+  var client = await connectToDatabase();
+  const senderInfo = await getUserInfo(client, '', sender_wallet);
+
+  var client = await connectToDatabase();
+  const query = `
+  INSERT INTO transactions (sender_wallet, sender_name, receiver_wallet, receiver_name, amount, narration)
+  VALUES ($1, $2, $3, $4, $5, $6)
+  RETURNING id;
+`;
+  const values = [sender_wallet, senderInfo.first_name + ' ' + senderInfo.last_name, receiver_wallet, recipientInfo.first_name + ' ' + recipientInfo.last_name, amount, narration];
+  const result = await executeQuery(client, query, values);
+  return result.rows.length > 0 ? result.rows[0] : null;
+}
