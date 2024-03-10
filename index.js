@@ -459,7 +459,6 @@ app.post("/transferFunds", async(req, res) => {
 
 // Getting user Info by email/wallet
 app.get("/getTransactions", async(req, res) => {
-  const{email, wallet_id} = req.body;
 
   const isValidToken = authenticateToken(req, res, secret);
 
@@ -500,6 +499,86 @@ app.get("/getTransactions", async(req, res) => {
         transactions: result.rows
       });
     }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+// Fund Account
+app.post("/fundAccount", async(req, res) => {
+  const{ amount } = req.body;
+
+  const isValidToken = authenticateToken(req, res, secret);
+  if (!isValidToken) {
+      res.status(401).send({message: "Unauthorized"});
+      return;
+  }
+
+  const token = deconstructToken(req, res, secret);
+  if (!token){
+    res.status(401).send({message: "Unauthorized"});
+    return;
+  }
+
+  const { id } = token;
+  const poolWallet = 100054;
+
+  try {
+    var client = await connectToDatabase();
+    // Fetch balance for user's wallet
+    const userBalance = await getBalance(client, id);
+
+    if (userBalance === null) {
+      res.status(404).send({ message: "Wallet not found" });
+      return;
+    }
+
+    var client = await connectToDatabase();
+    // Fetch balance for pool's wallet
+    const poolBalance = await getBalance(client, poolWallet);
+
+    if (poolBalance === null) {
+      res.status(404).send({ message: "Pool Account wallet not found" });
+      return;
+    }
+
+    if (parseFloat(poolBalance) < parseFloat(amount)) {
+      res.status(400).send({message: "Insufficient Funds with Internal Account"});
+      return;
+    }
+
+    // Deduct amount from pool's wallet
+    const senderClient = await connectToDatabase();
+    const senderQuery = `
+      UPDATE wallet
+      SET balance = balance - $1
+      WHERE user_id = $2
+      RETURNING balance;
+    `;
+    const senderValues = [amount, poolWallet];
+    const senderResult = await executeQuery(senderClient, senderQuery, senderValues);
+    const postsenderBalance = senderResult.rows[0].balance;
+
+    // Update user's wallet with amount
+    const recipientClient = await connectToDatabase();
+    const recipientQuery = `
+      UPDATE wallet
+      SET balance = balance + $1
+      WHERE user_id = $2
+      RETURNING balance;
+    `;
+    const recipientValues = [amount, id];
+    const recipientResult = await executeQuery(recipientClient, recipientQuery, recipientValues);
+    const postrecipientBalance = recipientResult.rows[0].balance;
+
+    console.log("Sender's balance after deduction:", postsenderBalance);
+    console.log("Recipient's balance after addition:", postrecipientBalance);
+
+    const transactionData = await createTransaction(client, poolWallet, id, amount, 'Funding Account');
+
+    res.status(200).send({message: "Funding Successful", transactionData: transactionData, newBalance: postrecipientBalance});
+  
   } catch (err) {
     console.error(err);
     res.status(500).send("Internal Server Error");
