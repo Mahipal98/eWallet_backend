@@ -1,6 +1,9 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const { Client } = require("pg");
 const express = require("express");
-const bodyParser = require("body-parser"); // Add body-parser for handling POST request bodies
+const bodyParser = require("body-parser");
 const cors = require("cors");
 
 var jwt = require("jsonwebtoken");
@@ -35,11 +38,11 @@ app.use(cors(corsOptions));
 
 // Database connection configuration
 const dbConfig = {
-  user: "ewalletuser",
-  password: "HealthWwPgwW615!",
-  host: "ewallet-db.cd8m6wu8guse.us-east-2.rds.amazonaws.com",
-  port: 5432,
-  database: "ewallet",
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
   ssl: {
     rejectUnauthorized: false
   }
@@ -47,28 +50,6 @@ const dbConfig = {
 
 // Middleware to parse JSON in the request body
 app.use(bodyParser.json());
-
-// Function to connect to the PostgreSQL database
-async function connectToDatabase() {
-  const client = new Client(dbConfig);
-  await client.connect();
-  console.log("Connected to PostgreSQL database");
-  return client;
-}
-
-// Function to execute a query and close the connection
-async function executeQuery(client, query, values) {
-  try {
-    const result = await client.query(query, values);
-    return result;
-  } catch (err) {
-    console.error("Error executing query:", err);
-    throw err; // Re-throw the error to be handled by the route handler
-  } finally {
-    await client.end();
-    console.log("Connection to PostgreSQL closed");
-  }
-}
 
 // GET endpoint to fetch all users
 app.get("/users", async (req, res) => {
@@ -83,75 +64,11 @@ app.get("/users", async (req, res) => {
 });
 
 // POST endpoint to create a new user
-// app.post("/users", async (req, res) => {
-//   let {
-//     first_name,
-//     last_name,
-//     email,
-//     //wallet_id,
-//     password,
-//     role,
-//     account_status,
-//   } = req.body;
-
-//   password = bcrypt.hashSync(password, 8);
-
-//   try {
-//     const client = await connectToDatabase();
-
-//     // Check if user exists
-//     const query = "SELECT COUNT(email) FROM users WHERE email = $1";
-//     const values = [email];
-//     const result = await executeQuery(client, query, values);
-
-//     if (result.rows[0].count === 1) {
-//       res.status(201).send("User Already exists");
-//       return;
-//     }
-//     const newclient = await connectToDatabase();
-//     // Create new user and wallet
-//     const newuserQuery = `
-//       WITH new_user AS (
-//         INSERT INTO users (first_name, last_name, email, wallet_id, password, role, account_status)
-//         VALUES ($1, $2, $3, $4, $5, $6, $7)
-//         RETURNING id
-//       ),
-//       new_wallet AS (
-//         INSERT INTO wallet (user_id, balance) VALUES ((SELECT id FROM new_user), 0) RETURNING id
-//       )
-//       UPDATE users
-//       SET wallet_id = (SELECT id FROM new_wallet)
-//       WHERE id = (SELECT id FROM new_user);
-//     `;
-//     const newuserValues = [
-//       first_name,
-//       last_name,
-//       email,
-//       null,
-//       password,
-//       role,
-//       account_status,
-//     ];
-//     const newuserResult = await executeQuery(
-//       newclient,
-//       newuserQuery,
-//       newuserValues
-//     );
-
-//     res.status(201).json(newuserResult.rows[0]);
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).send("Internal Server Error");
-//   }
-// });
-
-// POST endpoint to create a new user
 app.post("/users", async (req, res) => {
   let {
     first_name,
     last_name,
     email,
-    //wallet_id,
     password,
     role,
     account_status,
@@ -218,80 +135,6 @@ app.post("/users", async (req, res) => {
     console.error(err);
     res.status(500).send("Internal Server Error");
   }
-});
-
-
-// GET endpoint to fetch all wallets
-app.get("/wallets", (req, res) => {
-  const client = new Client(dbConfig);
-
-  client
-    .connect()
-    .then(() => {
-      console.log("Connected to PostgreSQL database");
-
-      // Executing SELECT query
-      client.query("SELECT * FROM wallet", (err, result) => {
-        if (err) {
-          console.error("Error executing query", err);
-          res.status(500).send("Internal Server Error");
-        } else {
-          res.status(200).json(result.rows);
-        }
-        client
-          .end()
-          .then(() => {
-            console.log("Connection to PostgreSQL closed");
-          })
-          .catch((err) => {
-            console.error("Error closing connection", err);
-          });
-      });
-    })
-    .catch((err) => {
-      console.error("Error connecting to PostgreSQL database", err);
-      res.status(500).send("Internal Server Error");
-    });
-});
-
-// POST endpoint to create a new wallet
-app.post("/wallets", (req, res) => {
-  const { balance } = req.body;
-  const client = new Client(dbConfig);
-
-  client
-    .connect()
-    .then(() => {
-      console.log("Connected to PostgreSQL database");
-
-      // Executing INSERT query
-      const query = `
-        INSERT INTO wallet (balance)
-        VALUES ($1)
-        RETURNING *`;
-      const values = [balance];
-
-      client.query(query, values, (err, result) => {
-        if (err) {
-          console.error("Error executing query", err);
-          res.status(500).send("Internal Server Error");
-        } else {
-          res.status(201).json(result.rows[0]);
-        }
-        client
-          .end()
-          .then(() => {
-            console.log("Connection to PostgreSQL closed");
-          })
-          .catch((err) => {
-            console.error("Error closing connection", err);
-          });
-      });
-    })
-    .catch((err) => {
-      console.error("Error connecting to PostgreSQL database", err);
-      res.status(500).send("Internal Server Error");
-    });
 });
 
 // Login endpoint
@@ -585,13 +428,27 @@ app.post("/fundAccount", async(req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`App listening on port ${port}`);
-});
+// Function to connect to the PostgreSQL database
+async function connectToDatabase() {
+  const client = new Client(dbConfig);
+  await client.connect();
+  console.log("Connected to PostgreSQL database");
+  return client;
+}
 
-app.get('/', (req, res) => {
-  res.status(200).send('Hello World!')
-})
+// Function to execute a query and close the connection
+async function executeQuery(client, query, values) {
+  try {
+    const result = await client.query(query, values);
+    return result;
+  } catch (err) {
+    console.error("Error executing query:", err);
+    throw err; // Re-throw the error to be handled by the route handler
+  } finally {
+    await client.end();
+    console.log("Connection to PostgreSQL closed");
+  }
+}
 
 async function getBalance(client, walletId) {
   const query = "SELECT balance FROM wallet WHERE id = $1";
@@ -625,3 +482,7 @@ async function createTransaction(client, sender_wallet, receiver_wallet, amount,
   const result = await executeQuery(client, query, values);
   return result.rows.length > 0 ? result.rows[0] : null;
 }
+
+app.listen(port, () => {
+  console.log(`App listening on port ${port}`);
+});
