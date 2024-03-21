@@ -428,6 +428,65 @@ app.post("/fundAccount", async(req, res) => {
   }
 });
 
+// Filter Transactions
+app.get("/filterTransactions", async(req, res) => {
+  
+  const isValidToken = authenticateToken(req, res, secret);
+
+  if (!isValidToken) {
+      return;
+  }
+
+  const token = deconstructToken(req, res, secret);
+  if (!token){
+    res.status(401).send({message: "Unauthorized"});
+    return;
+  }
+
+  const { id } = token;
+
+  try {
+    const client = await connectToDatabase();
+    const query = "SELECT * FROM transactions WHERE sender_wallet = $1 OR receiver_wallet = $1 ORDER BY id";
+    const values = [id];
+    const transaction_result = await executeQuery(client, query, values);
+
+    const wallet_client = await connectToDatabase();
+    const wallet_query = "SELECT balance FROM wallet WHERE id = $1";
+    const wallet_values = [id];
+    const wallet_result = await executeQuery(wallet_client, wallet_query, wallet_values);
+
+    // Check if transactions exist, if not, terminate process and return 404
+    if (transaction_result === null || wallet_result === null) {
+      res.status(404).send({message: "Transaction List Empty"});
+      console.log("No matching rows found");
+    } else {
+
+      transaction_result.rows.map((transaction) => {
+        if (transaction.sender_wallet == id) {
+          transaction.transaction_type = "Debit";
+        } else {
+          transaction.transaction_type = "Credit";
+        }
+      })
+
+      const creditCount = transaction_result.rows.filter(transaction => transaction.transaction_type === "Credit").length;
+      const debitCount = transaction_result.rows.filter(transaction => transaction.transaction_type === "Debit").length;
+
+      res.status(200).send({
+        walletBalance: wallet_result.rows[0].balance,
+        noOfCredits: creditCount,
+        noOfDebits: debitCount
+      });
+      
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Internal Server Error");
+  }
+
+});
+
 // Function to connect to the PostgreSQL database
 async function connectToDatabase() {
   const client = new Client(dbConfig);
