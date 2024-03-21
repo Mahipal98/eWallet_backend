@@ -542,6 +542,10 @@ async function createTransaction(client, sender_wallet, receiver_wallet, amount,
   return result.rows.length > 0 ? result.rows[0] : null;
 }
 
+app.get('/', (req, res) => {
+  res.status(200).send('Hello World!')
+})
+
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
 });
