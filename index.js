@@ -8,8 +8,10 @@ const cors = require("cors");
 
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcryptjs");
+const nodemailer = require('nodemailer');
 const authenticateToken = require('./src/helper/authenticator.js');
 const deconstructToken = require('./src/helper/token.js');
+const transactionEmail = require('./src/helper/email.js');
 
 const app = express();
 const port = 3000;
@@ -292,7 +294,19 @@ app.post("/transferFunds", async(req, res) => {
 
     const transactionData = await createTransaction(client, id, recipient_wallet, amount, narration);
 
+    const emailData = {
+      sender_wallet: id,
+      recipient_wallet: recipient_wallet,
+      amount: amount,
+      narration: narration,
+      transactionData: transactionData,
+      postsenderBalance: postsenderBalance,
+      postrecipientBalance: postrecipientBalance,
+    }
+
     res.status(200).send({message: "Transfer Successful", transactionData: transactionData, senderBalance: postsenderBalance});
+
+    sendEmail(emailData);
   
   } catch (err) {
     console.error(err);
@@ -421,6 +435,18 @@ app.post("/fundAccount", async(req, res) => {
     const transactionData = await createTransaction(client, poolWallet, id, amount, 'Funding Account');
 
     res.status(200).send({message: "Funding Successful", transactionData: transactionData, newBalance: postrecipientBalance});
+
+    const emailData = {
+      sender_wallet: poolWallet,
+      recipient_wallet: id,
+      amount: amount,
+      narration: 'Funding Account',
+      transactionData: transactionData,
+      postsenderBalance: postsenderBalance,
+      postrecipientBalance: postrecipientBalance,
+    }
+
+    sendEmail(emailData);
   
   } catch (err) {
     console.error(err);
@@ -494,7 +520,6 @@ async function connectToDatabase() {
   console.log("Connected to PostgreSQL database");
   return client;
 }
-
 // Function to execute a query and close the connection
 async function executeQuery(client, query, values) {
   try {
@@ -541,6 +566,105 @@ async function createTransaction(client, sender_wallet, receiver_wallet, amount,
   const result = await executeQuery(client, query, values);
   return result.rows.length > 0 ? result.rows[0] : null;
 }
+
+async function sendEmail(emailData) {
+
+  var client = await connectToDatabase();
+  const recipientInfo = await getUserInfo(client, '', emailData.recipient_wallet);
+
+  var client = await connectToDatabase();
+  const senderInfo = await getUserInfo(client, '', emailData.sender_wallet);
+
+
+
+  // Send email to user
+  const senderMail = {
+    id: emailData.transactionData.id,
+    walletNo: emailData.recipient_wallet,
+    emailName: senderInfo.first_name + ' ' + senderInfo.last_name,
+    walletName: recipientInfo.first_name + ' ' + recipientInfo.last_name,
+    dateTime: getCurrentDateTime(),
+    amount: emailData.amount,
+    narration: emailData.narration,
+    accountBalance: emailData.postsenderBalance,
+    transactionType: 'Debit',
+    email: senderInfo.email
+  }
+
+  const senderTemplate = transactionEmail(senderMail);
+
+  executeMail(senderMail, senderTemplate)
+
+    // Send email to user
+    const receiverMail = {
+      id: emailData.transactionData.id,
+      walletNo: emailData.sender_wallet,
+      emailName: recipientInfo.first_name + ' ' + recipientInfo.last_name,
+      walletName: senderInfo.first_name + ' ' + senderInfo.last_name,
+      dateTime: getCurrentDateTime(),
+      amount: emailData.amount,
+      narration: emailData.narration,
+      accountBalance: emailData.postrecipientBalance,
+      transactionType: 'Credit',
+      email: recipientInfo.email
+    }
+
+    const receiverTemplate = transactionEmail(receiverMail);
+
+    executeMail(receiverMail, receiverTemplate)
+
+}
+
+function executeMail(emailData, template){
+    // Create a transporter object using the default SMTP transport
+    let transporter = nodemailer.createTransport({
+      service: "Gmail",
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+          user: process.env.EMAIL_AUTH_USER, // Replace with your email
+          pass: process.env.EMAIL_AUTH_PASSWORD // Replace with your email password
+      }
+  });
+
+  let mailOptions = {
+    from: process.env.EMAIL_AUTH_USER, // Sender address
+    to: emailData.email, // List of recipients
+    subject: 'E-Wallet | Transaction Details', // Subject line
+    text: 'Hello from Node.js!', // Plain text body
+    html: template // HTML body
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+        return console.log(`Error: ${error}`);
+    }
+    console.log(`Message Sent: ${info.response}`);
+});
+}
+
+function getCurrentDateTime() {
+  const currentDate = new Date();
+  
+  const day = String(currentDate.getDate()).padStart(2, '0');
+  const month = String(currentDate.getMonth() + 1).padStart(2, '0'); // January is 0!
+  const year = currentDate.getFullYear();
+  
+  let hours = currentDate.getHours();
+  const minutes = String(currentDate.getMinutes()).padStart(2, '0');
+  const seconds = String(currentDate.getSeconds()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  
+  const formattedDateTime = `${day}-${month}-${year} ${hours}:${minutes}:${seconds} ${ampm}`;
+  return formattedDateTime;
+}
+
+const currentDateTime = getCurrentDateTime();
+console.log(currentDateTime);
+
 
 app.get('/', (req, res) => {
   res.status(200).send('Hello World!')
